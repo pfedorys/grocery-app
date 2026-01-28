@@ -59,25 +59,37 @@ if selected_items:
     st.divider()
     st.metric("Total Trip Cost", f"${grand_total:.2f}")
 
-    # --- NEW: SAVE & SHARE SECTION ---
+    # --- SAVE & SHARE SECTION ---
     st.header("💾 Save & Share")
     
-    list_name = st.text_input("Give this list a name (e.g., 'Weekly Run' or 'BBQ Prep')", "My Grocery List")
+    list_name = st.text_input("List Name", "My Grocery List")
     
     col1, col2 = st.columns(2)
     
+    # URL Encoding for safe sharing
+    sms_body = urllib.parse.quote(share_text)
+    email_subject = urllib.parse.quote(list_name)
+    email_body = urllib.parse.quote(share_text)
+    
     with col1:
-        # SMS Share (Works on Mobile)
-        sms_body = urllib.parse.quote(share_text)
-        st.markdown(f'<a href="sms:?&body={sms_body}" style="text-decoration:none;"><button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px;">📱 Send via Text / SMS</button></a>', unsafe_allow_allow_html=True)
+        # SMS link (Universal format)
+        st.markdown(f'''
+            <a href="sms:?&body={sms_body}" target="_blank">
+                <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">
+                    📱 Send via Text / SMS
+                </button>
+            </a>
+            ''', unsafe_allow_html=True)
 
     with col2:
-        # Email Share
-        email_subject = urllib.parse.quote(list_name)
-        email_body = urllib.parse.quote(share_text)
-        st.markdown(f'<a href="mailto:?subject={email_subject}&body={email_body}" style="text-decoration:none;"><button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px;">✉️ Send via Email</button></a>', unsafe_allow_html=True)
-
-    st.info("💡 To 'Save' this list for later, just click the Send via Email button and mail it to yourself!")
+        # Email link
+        st.markdown(f'''
+            <a href="mailto:?subject={email_subject}&body={email_body}">
+                <button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">
+                    ✉️ Send via Email
+                </button>
+            </a>
+            ''', unsafe_allow_html=True)
 
 else:
-    st.info("Check items above to build your list.")
+    st.info("Select items above to build your list.")
