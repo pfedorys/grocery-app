@@ -4,6 +4,7 @@ import urllib.parse
 
 st.set_page_config(page_title="Smart Grocery Planner", layout="wide")
 
+# Load and clean data
 @st.cache_data
 def load_data():
     df = pd.read_csv('cleaned_food_list.csv')
@@ -15,7 +16,23 @@ def load_data():
 
 df = load_data()
 
+# Logic for Clear All button
+if "reset" not in st.session_state:
+    st.session_state.reset = False
+
+def reset_list():
+    for key in st.session_state.keys():
+        if key.startswith("check_"):
+            st.session_state[key] = False
+
 st.title("🛒 Smart Grocery List Builder")
+
+# Top controls
+col_reset, _ = st.columns([1, 4])
+with col_reset:
+    if st.button("🔄 Clear All Selections"):
+        reset_list()
+        st.rerun()
 
 # 1. Selection Interface
 categories = df['Category'].unique()
@@ -38,58 +55,5 @@ if selected_items:
     shopping_df = pd.DataFrame(selected_items)
     stores = shopping_df['Best Store'].unique()
     
-    # Prepare text for sharing
     share_text = "My Shopping List:\n"
-    grand_total = 0
-    
-    for store in stores:
-        store_items = shopping_df[shopping_df['Best Store'] == store]
-        store_total = store_items['Best Price'].sum()
-        grand_total += store_total
-        
-        share_text += f"\n📍 {store} (Total: ${store_total:.2f}):\n"
-        
-        with st.expander(f"📍 {store} - Subtotal: ${store_total:.2f}", expanded=True):
-            for _, item in store_items.iterrows():
-                st.write(f"- **{item['Item']}**: ${item['Best Price']:.2f}")
-                share_text += f"- {item['Item']}: ${item['Best Price']:.2f}\n"
-    
-    share_text += f"\nGrand Total: ${grand_total:.2f}"
-    
-    st.divider()
-    st.metric("Total Trip Cost", f"${grand_total:.2f}")
-
-    # --- SAVE & SHARE SECTION ---
-    st.header("💾 Save & Share")
-    
-    list_name = st.text_input("List Name", "My Grocery List")
-    
-    col1, col2 = st.columns(2)
-    
-    # URL Encoding for safe sharing
-    sms_body = urllib.parse.quote(share_text)
-    email_subject = urllib.parse.quote(list_name)
-    email_body = urllib.parse.quote(share_text)
-    
-    with col1:
-        # SMS link (Universal format)
-        st.markdown(f'''
-            <a href="sms:?&body={sms_body}" target="_blank">
-                <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">
-                    📱 Send via Text / SMS
-                </button>
-            </a>
-            ''', unsafe_allow_html=True)
-
-    with col2:
-        # Email link
-        st.markdown(f'''
-            <a href="mailto:?subject={email_subject}&body={email_body}">
-                <button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">
-                    ✉️ Send via Email
-                </button>
-            </a>
-            ''', unsafe_allow_html=True)
-
-else:
-    st.info("Select items above to build your list.")
+    grand_total =
