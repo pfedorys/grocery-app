@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
+import json
 
 st.set_page_config(page_title="Smart Grocery Planner", layout="wide")
 
@@ -19,8 +20,23 @@ def load_data():
 
 df, STORES = load_data()
 
+# --- NEW: SESSION STATE FOR SAVED LISTS ---
+if "saved_lists" not in st.session_state:
+    st.session_state.saved_lists = {} # Dictionary: {name: [indices]}
+
+# Handle URL Parameters (Auto-loading a shared list)
+params = st.query_params
+if "items" in params and not st.session_state.get('loaded_from_url'):
+    try:
+        item_indices = [int(i) for i in params["items"].split(",")]
+        for idx in item_indices:
+            st.session_state[f"check_{idx}"] = True
+        st.session_state.loaded_from_url = True
+    except:
+        pass
+
 def reset_list():
-    for key in st.session_state.keys():
+    for key in list(st.session_state.keys()):
         if key.startswith("check_"):
             st.session_state[key] = False
 
@@ -33,6 +49,7 @@ with col_reset:
     st.write(" ")
     if st.button("🔄 Clear Selections"):
         reset_list()
+        st.query_params.clear()
         st.rerun()
 
 # 1. Selection Interface
@@ -40,79 +57,85 @@ st.sidebar.header("Filter")
 categories = df['Category'].unique()
 category_filter = st.sidebar.multiselect("Select Categories", categories, default=categories)
 
-# Add Stock Status filter to sidebar
-if 'Stock Status' in df.columns:
-    statuses = df['Stock Status'].unique()
-    status_filter = st.sidebar.multiselect("Filter by Stock Status", statuses, default=statuses)
-    filtered_df = df[
-        (df['Category'].isin(category_filter)) & 
-        (df['Stock Status'].isin(status_filter)) &
-        (df['Item'].str.contains(search_query, case=False, na=False))
-    ]
-else:
-    filtered_df = df[
-        (df['Category'].isin(category_filter)) & 
-        (df['Item'].str.contains(search_query, case=False, na=False))
-    ]
+filtered_df = df[
+    (df['Category'].isin(category_filter)) & 
+    (df['Item'].str.contains(search_query, case=False, na=False))
+]
 
 st.subheader("Select Items to Buy")
 selected_items = []
 with st.expander("Show Checklist", expanded=True):
     for index, row in filtered_df.iterrows():
-        stock_label = f" [{row['Stock Status']}]" if 'Stock Status' in df.columns else ""
-        item_label = f"{row['Item']}{stock_label} (${row['Best Price']:.2f} at {row['Best Store']})"
-        if st.checkbox(item_label, key=f"check_{index}"):
+        item_label = f"{row['Item']} (${row['Best Price']:.2f} at {row['Best Store']})"
+        # Use session state to allow URL loading
+        is_checked = st.checkbox(item_label, key=f"check_{index}")
+        if is_checked:
             selected_items.append(row)
 
 # 2. Optimized List & Comparisons
 if selected_items:
     st.divider()
     shopping_df = pd.DataFrame(selected_items)
+    best_grand_total = shopping_df['Best Price'].sum()
     
     st.header("📋 Optimized Shopping List")
-    best_grand_total = 0
-    
-    stores_to_visit = shopping_df['Best Store'].unique()
-    for store in stores_to_visit:
+    for store in shopping_df['Best Store'].unique():
         items_at_store = shopping_df[shopping_df['Best Store'] == store]
-        subtotal = items_at_store['Best Price'].sum()
-        best_grand_total += subtotal
-        
-        with st.expander(f"📍 {store} - Subtotal: ${subtotal:.2f}", expanded=True):
+        with st.expander(f"📍 {store} - Subtotal: ${items_at_store['Best Price'].sum():.2f}", expanded=True):
             for _, item in items_at_store.iterrows():
-                alts = []
-                for s in STORES:
-                    if s != store and not pd.isna(item[s]):
-                        diff = item[s] - item['Best Price']
-                        alts.append(f"{s} (+${diff:.2f})")
-                alt_text = f" | Alts: {', '.join(alts)}" if alts else " | No alts"
-                st.write(f"✅ **{item['Item']}**: ${item['Best Price']:.2f}{alt_text}")
+                st.write(f"✅ **{item['Item']}**: ${item['Best Price']:.2f}")
 
-    # 3. One-Stop Comparison
+    # 3. Save & Share Features
     st.divider()
-    st.header("🚗 One-Stop Shopping Calculator")
-    one_stop_data = []
-    for store in STORES:
-        available_items = shopping_df[~shopping_df[store].isna()]
-        store_total = available_items[store].sum()
-        missing_count = len(shopping_df) - len(available_items)
-        if len(available_items) > 0:
-            diff = store_total - best_grand_total
-            status = f"Missing {missing_count} items" if missing_count > 0 else "All items available"
-            one_stop_data.append({"Store": store, "Total Price": f"${store_total:.2f}", "Extra Cost": f"+${diff:.2f}", "Availability": status})
-
-    st.table(pd.DataFrame(one_stop_data))
-    st.metric("Best Possible Total", f"${best_grand_total:.2f}")
-
-    # 4. Save & Share
-    st.header("💾 Save & Share")
-    list_name = st.text_input("List Name", "My Grocery List")
-    share_text = f"Optimized Total: ${best_grand_total:.2f}\n" + "\n".join([f"- {row['Item']}: ${row['Best Price']:.2f} at {row['Best Store']}" for _, row in shopping_df.iterrows()])
+    st.header("💾 Manage & Share List")
     
-    c1, c2 = st.columns(2)
+    list_name = st.text_input("List Name", "My Weekly List")
+    
+    # Generate Link for this specific list
+    current_indices = ",".join([str(i) for i, row in filtered_df.iterrows() if st.session_state.get(f"check_{i}")])
+    shareable_url = f"https://grocery-app-kqya53bcfcmexnes2bv3le.streamlit.app/?items={current_indices}"
+    
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown(f'<a href="sms:?&body={urllib.parse.quote(share_text)}" target="_blank"><button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">📱 Text List</button></a>', unsafe_allow_html=True)
+        if st.button("💾 Save to Dashboard"):
+            indices = [int(k.split("_")[1]) for k, v in st.session_state.items() if k.startswith("check_") and v]
+            st.session_state.saved_lists[list_name] = indices
+            st.success(f"Saved '{list_name}'")
+    
     with c2:
-        st.markdown(f'<a href="mailto:?subject={urllib.parse.quote(list_name)}&body={urllib.parse.quote(share_text)}"><button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">✉️ Email List</button></a>', unsafe_allow_html=True)
+        sms_text = f"Grocery List: {shareable_url}"
+        st.markdown(f'<a href="sms:?&body={urllib.parse.quote(sms_text)}" target="_blank"><button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">📱 SMS Link</button></a>', unsafe_allow_html=True)
+    
+    with c3:
+        st.markdown(f'<a href="mailto:?subject={list_name}&body={shareable_url}"><button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">✉️ Email Link</button></a>', unsafe_allow_html=True)
+
+# 4. Saved Lists Dashboard
+st.divider()
+st.header("🗄️ Saved Lists Dashboard")
+
+if st.session_state.saved_lists:
+    for name, indices in list(st.session_state.saved_lists.items()):
+        col_name, col_act, col_copy, col_ren, col_del = st.columns([3, 1, 1, 1, 1])
+        
+        col_name.write(f"**{name}** ({len(indices)} items)")
+        
+        if col_act.button("🔄 Activate", key=f"act_{name}"):
+            reset_list()
+            for idx in indices:
+                st.session_state[f"check_{idx}"] = True
+            st.rerun()
+            
+        if col_copy.button("👯 Copy", key=f"cp_{name}"):
+            st.session_state.saved_lists[f"{name} (Copy)"] = indices
+            st.rerun()
+            
+        if col_del.button("🗑️ Delete", key=f"del_{name}"):
+            del st.session_state.saved_lists[name]
+            st.rerun()
+            
+        new_name = col_ren.text_input("Rename", value=name, key=f"ren_in_{name}", label_visibility="collapsed")
+        if new_name != name:
+            st.session_state.saved_lists[new_name] = st.session_state.saved_lists.pop(name)
+            st.rerun()
 else:
-    st.info("Select items above to build your list.")
+    st.info("No saved lists yet. Select items and click 'Save to Dashboard'.")
