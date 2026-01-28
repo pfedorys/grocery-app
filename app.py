@@ -40,16 +40,27 @@ st.sidebar.header("Filter")
 categories = df['Category'].unique()
 category_filter = st.sidebar.multiselect("Select Categories", categories, default=categories)
 
-filtered_df = df[
-    (df['Category'].isin(category_filter)) & 
-    (df['Item'].str.contains(search_query, case=False, na=False))
-]
+# Add Stock Status filter to sidebar
+if 'Stock Status' in df.columns:
+    statuses = df['Stock Status'].unique()
+    status_filter = st.sidebar.multiselect("Filter by Stock Status", statuses, default=statuses)
+    filtered_df = df[
+        (df['Category'].isin(category_filter)) & 
+        (df['Stock Status'].isin(status_filter)) &
+        (df['Item'].str.contains(search_query, case=False, na=False))
+    ]
+else:
+    filtered_df = df[
+        (df['Category'].isin(category_filter)) & 
+        (df['Item'].str.contains(search_query, case=False, na=False))
+    ]
 
 st.subheader("Select Items to Buy")
 selected_items = []
 with st.expander("Show Checklist", expanded=True):
     for index, row in filtered_df.iterrows():
-        item_label = f"{row['Item']} (${row['Best Price']:.2f} at {row['Best Store']})"
+        stock_label = f" [{row['Stock Status']}]" if 'Stock Status' in df.columns else ""
+        item_label = f"{row['Item']}{stock_label} (${row['Best Price']:.2f} at {row['Best Store']})"
         if st.checkbox(item_label, key=f"check_{index}"):
             selected_items.append(row)
 
@@ -77,32 +88,23 @@ if selected_items:
                 alt_text = f" | Alts: {', '.join(alts)}" if alts else " | No alts"
                 st.write(f"✅ **{item['Item']}**: ${item['Best Price']:.2f}{alt_text}")
 
-    # --- NEW: ONE-STOP SHOPPING COMPARISON ---
+    # 3. One-Stop Comparison
     st.divider()
     st.header("🚗 One-Stop Shopping Calculator")
-    st.write("Is the extra driving worth it? Here is the total if you bought everything at just one store:")
-    
     one_stop_data = []
     for store in STORES:
-        # Check if store carries all selected items
         available_items = shopping_df[~shopping_df[store].isna()]
         store_total = available_items[store].sum()
         missing_count = len(shopping_df) - len(available_items)
-        
         if len(available_items) > 0:
             diff = store_total - best_grand_total
             status = f"Missing {missing_count} items" if missing_count > 0 else "All items available"
-            one_stop_data.append({
-                "Store": store,
-                "Total Price": f"${store_total:.2f}",
-                "Extra Cost": f"+${diff:.2f}",
-                "Availability": status
-            })
+            one_stop_data.append({"Store": store, "Total Price": f"${store_total:.2f}", "Extra Cost": f"+${diff:.2f}", "Availability": status})
 
     st.table(pd.DataFrame(one_stop_data))
-    st.metric("Best Possible Total", f"${best_grand_total:.2f}", help="Visiting multiple stores for lowest prices.")
+    st.metric("Best Possible Total", f"${best_grand_total:.2f}")
 
-    # --- SAVE & SHARE ---
+    # 4. Save & Share
     st.header("💾 Save & Share")
     list_name = st.text_input("List Name", "My Grocery List")
     share_text = f"Optimized Total: ${best_grand_total:.2f}\n" + "\n".join([f"- {row['Item']}: ${row['Best Price']:.2f} at {row['Best Store']}" for _, row in shopping_df.iterrows()])
@@ -111,4 +113,6 @@ if selected_items:
     with c1:
         st.markdown(f'<a href="sms:?&body={urllib.parse.quote(share_text)}" target="_blank"><button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">📱 Text List</button></a>', unsafe_allow_html=True)
     with c2:
-        st.markdown(f'<a href="mailto:?subject={urllib.parse.quote(list_name)}&body={urllib.parse.quote(share_text)}"><button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">✉️ Email List</button
+        st.markdown(f'<a href="mailto:?subject={urllib.parse.quote(list_name)}&body={urllib.parse.quote(share_text)}"><button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">✉️ Email List</button></a>', unsafe_allow_html=True)
+else:
+    st.info("Select items above to build your list.")
