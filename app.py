@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 
-# Set app URL as a constant for easy sharing
+# Set app URL as a constant
 APP_URL = "https://grocery-app-kqya53bcfcmexnes2bv3le.streamlit.app/"
 
 st.set_page_config(page_title="Smart Grocery Planner", layout="wide")
@@ -11,9 +11,10 @@ st.set_page_config(page_title="Smart Grocery Planner", layout="wide")
 def load_data():
     df = pd.read_csv('cleaned_food_list.csv')
     df.columns = df.columns.str.strip()
+    # Explicitly list the stores from your Excel columns
     store_cols = ['King Kullen', 'Aldi', 'Stop & Shop', 'Whole Foods', 'Target', 'Costco']
     
-    # Standardize all price columns
+    # Clean up all price columns and Best Price
     all_price_cols = store_cols + ['Best Price', 'Previous Price']
     for col in all_price_cols:
         if col in df.columns:
@@ -44,6 +45,7 @@ def toggle_selection(idx):
 
 st.title("🛒 Smart Grocery List Builder")
 
+# Top controls
 col_search, col_reset = st.columns([3, 1])
 with col_search:
     search_query = st.text_input("🔍 Search for items", "")
@@ -71,32 +73,37 @@ with st.expander("Show Checklist", expanded=True):
         history_note = ""
         if 'Previous Price' in row and not pd.isna(row['Previous Price']):
             diff = row['Best Price'] - row['Previous Price']
-            if diff < 0:
-                history_note = f" 📉 (Saved ${abs(diff):.2f})"
-            elif diff > 0:
-                history_note = f" 📈 (Up ${diff:.2f})"
+            if diff < 0: history_note = f" 📉 (-${abs(diff):.2f})"
+            elif diff > 0: history_note = f" 📈 (+${diff:.2f})"
         
         item_label = f"{row['Item']} (${row['Best Price']:.2f} at {row['Best Store']}){history_note}"
         is_already_selected = index in st.session_state.persistent_selections
         st.checkbox(item_label, value=is_already_selected, key=f"check_{index}", on_change=toggle_selection, args=(index,))
 
-# 2. Optimized List & Budget Breakdown
+# 2. Results Section
 selected_indices = list(st.session_state.persistent_selections)
 if selected_indices:
     selected_items_df = df.loc[selected_indices]
+    best_grand_total = selected_items_df['Best Price'].sum()
     
     st.divider()
     col_list, col_chart = st.columns([2, 1])
     
     with col_list:
         st.header("📋 Optimized Shopping List")
-        best_grand_total = selected_items_df['Best Price'].sum()
         for store in selected_items_df['Best Store'].unique():
             items_at_store = selected_items_df[selected_items_df['Best Store'] == store]
             with st.expander(f"📍 {store} - Subtotal: ${items_at_store['Best Price'].sum():.2f}", expanded=True):
                 for _, item in items_at_store.iterrows():
-                    st.write(f"✅ **{item['Item']}**: ${item['Best Price']:.2f}")
-        st.metric("Total Trip Cost", f"${best_grand_total:.2f}")
+                    # RESTORED: Item-level comparison logic
+                    alts = []
+                    for s in STORES:
+                        if s != store and not pd.isna(item[s]):
+                            diff = item[s] - item['Best Price']
+                            alts.append(f"{s} (+${diff:.2f})")
+                    alt_text = f" | Alts: {', '.join(alts)}" if alts else " | No alts"
+                    st.write(f"✅ **{item['Item']}**: ${item['Best Price']:.2f}{alt_text}")
+        st.metric("Best Possible Total", f"${best_grand_total:.2f}")
 
     with col_chart:
         st.header("📊 Budget by Category")
@@ -104,7 +111,22 @@ if selected_indices:
         st.bar_chart(data=cat_data, x='Category', y='Best Price')
         st.dataframe(cat_data.set_index('Category').style.format("${:.2f}"), use_container_width=True)
 
-    # 3. Share Features (Now using your specific APP_URL)
+    # RESTORED: One-Stop Shopping Comparison Table
+    st.divider()
+    st.header("🚗 One-Stop Shopping Calculator")
+    st.write("How much extra would it cost to skip the multiple stops?")
+    one_stop_data = []
+    for store in STORES:
+        available_items = selected_items_df[~selected_items_df[store].isna()]
+        store_total = available_items[store].sum()
+        missing_count = len(selected_items_df) - len(available_items)
+        if len(available_items) > 0:
+            diff = store_total - best_grand_total
+            status = "Full List" if missing_count == 0 else f"Missing {missing_count} items"
+            one_stop_data.append({"Store": store, "Total Price": f"${store_total:.2f}", "Extra Cost": f"+${diff:.2f}", "Status": status})
+    st.table(pd.DataFrame(one_stop_data))
+
+    # 3. Share Features
     st.divider()
     list_name = st.text_input("List Name", "My Weekly List")
     current_ids = ",".join(map(str, selected_indices))
@@ -112,21 +134,9 @@ if selected_indices:
     
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown(f'''
-            <a href="sms:?&body={urllib.parse.quote(share_url)}" target="_blank">
-                <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">
-                    📱 SMS Link
-                </button>
-            </a>
-            ''', unsafe_allow_html=True)
+        st.markdown(f'<a href="sms:?&body={urllib.parse.quote(share_url)}" target="_blank"><button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">📱 SMS Link</button></a>', unsafe_allow_html=True)
     with c2:
-        st.markdown(f'''
-            <a href="mailto:?subject={urllib.parse.quote(list_name)}&body={share_url}">
-                <button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">
-                    ✉️ Email Link
-                </button>
-            </a>
-            ''', unsafe_allow_html=True)
+        st.markdown(f'<a href="mailto:?subject={urllib.parse.quote(list_name)}&body={share_url}"><button style="width:100%; border-radius:10px; background-color:#0078D4; color:white; border:none; padding:10px; cursor:pointer;">✉️ Email Link</button></a>', unsafe_allow_html=True)
 
 # 4. Dashboard
 st.divider()
