@@ -11,10 +11,8 @@ st.set_page_config(page_title="Smart Grocery Planner", layout="wide")
 def load_data():
     df = pd.read_csv('cleaned_food_list.csv')
     df.columns = df.columns.str.strip()
-    # Explicitly list the stores from your Excel columns
     store_cols = ['King Kullen', 'Aldi', 'Stop & Shop', 'Whole Foods', 'Target', 'Costco']
     
-    # Clean up all price columns and Best Price
     all_price_cols = store_cols + ['Best Price', 'Previous Price']
     for col in all_price_cols:
         if col in df.columns:
@@ -46,11 +44,14 @@ def toggle_selection(idx):
 st.title("🛒 Smart Grocery List Builder")
 
 # Top controls
-col_search, col_reset = st.columns([3, 1])
+col_search, col_sort, col_reset = st.columns([3, 1, 1])
 with col_search:
     search_query = st.text_input("🔍 Search for items", "")
+with col_sort:
+    st.write(" ") # Padding
+    sort_alphabetical = st.toggle("🔤 Sort A-Z", value=False)
 with col_reset:
-    st.write(" ")
+    st.write(" ") # Padding
     if st.button("🔄 Clear Selections"):
         reset_list()
         st.query_params.clear()
@@ -61,15 +62,18 @@ st.sidebar.header("Filter")
 categories = df['Category'].unique()
 category_filter = st.sidebar.multiselect("Select Categories", categories, default=categories)
 
+# Apply Filter and Sort
 filtered_df = df[
     (df['Category'].isin(category_filter)) & 
     (df['Item'].str.contains(search_query, case=False, na=False))
 ]
 
+if sort_alphabetical:
+    filtered_df = filtered_df.sort_values(by='Item')
+
 st.subheader("Select Items to Buy")
 with st.expander("Show Checklist", expanded=True):
     for index, row in filtered_df.iterrows():
-        # Price History Indicator
         history_note = ""
         if 'Previous Price' in row and not pd.isna(row['Previous Price']):
             diff = row['Best Price'] - row['Previous Price']
@@ -91,11 +95,12 @@ if selected_indices:
     
     with col_list:
         st.header("📋 Optimized Shopping List")
-        for store in selected_items_df['Best Store'].unique():
-            items_at_store = selected_items_df[selected_items_df['Best Store'] == store]
+        # Ensure the final shopping list itself stays sorted alphabetically for easier in-store navigation
+        final_stores = sorted(selected_items_df['Best Store'].unique())
+        for store in final_stores:
+            items_at_store = selected_items_df[selected_items_df['Best Store'] == store].sort_values(by='Item')
             with st.expander(f"📍 {store} - Subtotal: ${items_at_store['Best Price'].sum():.2f}", expanded=True):
                 for _, item in items_at_store.iterrows():
-                    # RESTORED: Item-level comparison logic
                     alts = []
                     for s in STORES:
                         if s != store and not pd.isna(item[s]):
@@ -111,10 +116,9 @@ if selected_indices:
         st.bar_chart(data=cat_data, x='Category', y='Best Price')
         st.dataframe(cat_data.set_index('Category').style.format("${:.2f}"), use_container_width=True)
 
-    # RESTORED: One-Stop Shopping Comparison Table
+    # One-Stop Shopping Calculator
     st.divider()
     st.header("🚗 One-Stop Shopping Calculator")
-    st.write("How much extra would it cost to skip the multiple stops?")
     one_stop_data = []
     for store in STORES:
         available_items = selected_items_df[~selected_items_df[store].isna()]
